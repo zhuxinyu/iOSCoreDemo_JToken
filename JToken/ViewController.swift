@@ -13,6 +13,7 @@ class ViewController: UIViewController {
         super.viewDidLoad()
         // Do any additional setup after loading the view.
         
+        // test
         let a = JTokenizer("(multiply (add 1.4 3))").tokenizer()
         print(a)
     }
