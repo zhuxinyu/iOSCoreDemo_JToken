@@ -8,7 +8,7 @@
 import UIKit
 
 class ViewController: UIViewController {
-
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         // Do any additional setup after loading the view.
@@ -22,12 +22,14 @@ class ViewController: UIViewController {
         print(astPrintable(b))
     }
     
+    // 打印语法树 （遍历语法树打印每一个节点）
     private func astPrintable(_ tree: [JNode]) {
         for aNode in tree {
             recDesNode(aNode, level: 0)
         }
     }
     
+    // 打印一个节点
     private func recDesNode(_ node:JNode, level: Int) {
         let nodeTypeStr = node.type
         var preSpace = ""
@@ -51,6 +53,12 @@ class ViewController: UIViewController {
             dataStr = ""
         case .CallExpression:
             dataStr = "expression is \(node.type)(\(node.name))"
+        case .Root:
+            dataStr = "Root is \(node.type)(\(node.name)"
+        case .ExpressionStatement:
+            dataStr = "ExpressionStatement is \(node.type)(\(node.name)"
+        case .Identifier:
+            dataStr = "Identifier is \(node.type)(\(node.name)"
         }
         print("\(preSpace) \(nodeTypeStr) \(dataStr)")
         
@@ -86,6 +94,7 @@ public class JTokenizer {
         _index = _input.startIndex
     }
     
+    // 词法分析
     public func tokenizer() -> [JToken] {
         var tokens = [JToken]()
         while let aChar = currentChar {
@@ -136,16 +145,20 @@ public enum JNumberType {
 }
 
 // 节点类型
-public enum JNodeType {
+public enum JNodeType: String {
     case None
     case NumberLiteral
     case CallExpression
+    case Root
+    case ExpressionStatement
+    case Identifier
 }
 
 public protocol JNodeBase {
     var type: JNodeType {get}
     var name: String {get}
     var params: [JNode] {get}
+    var expressionts: [JNode] {get}
 }
 
 public protocol JNodeNumberLiteral {
@@ -158,6 +171,18 @@ public struct JNode: JNodeBase, JNodeNumberLiteral {
     public var type = JNodeType.None
     public var name = ""
     public var params = [JNode]()
+    public var expressionts = [JNode]()
+    public var numberType = JNumberType.int
+    public var intValue: Int = 0
+    public var floatValue: Float = 0
+    public var callee = JnodeCallee()
+}
+
+public struct JnodeCallee: JNodeBase, JNodeNumberLiteral {
+    public var type = JNodeType.None
+    public var name = ""
+    public var params = [JNode]()
+    public var expressionts = [JNode]()
     public var numberType = JNumberType.int
     public var intValue: Int = 0
     public var floatValue: Float = 0
@@ -173,6 +198,7 @@ public class JParser {
         _current = 0
     }
     
+    // 语法分析 （遍历词法数组，对每个解析成语法节点的添加到语法树）
     public func parser() -> [JNode] {
         _current = 0
         var nodeTree = [JNode]()
@@ -183,6 +209,7 @@ public class JParser {
         return nodeTree
     }
     
+    // 处理当前节点，组装成语法节点
     private func walk() -> JNode {
         var tk = _tokens[_current]
         var jNode = JNode()
@@ -223,6 +250,74 @@ public class JParser {
         return jNode
     }
 }
+
+// 遍历器-转换器 -> 语法树转节点树
+public class JTransformer {
+    
+    public typealias VisitorClosure = (JNode, JNode) -> JNode
+     
+    var ast = [JNode]()
+    
+    public func traverser(visitor: [String: VisitorClosure], ast:[JNode]) {
+        func traverseChildNode(childrens:[JNode], parent: JNode) {
+            for child in childrens {
+                traverseNode(node: child, parent: parent)
+            }
+        }
+        
+        func traverseNode(node: JNode, parent: JNode) {
+            // 执行外部传入的closure
+            if visitor.keys.contains(node.type.rawValue) {
+                if let closure:VisitorClosure = visitor[node.type.rawValue] {
+                    self.ast.append(closure(node, parent))
+                }
+            }
+            // 看是否有子节点需要继续遍历
+            if node.params.count > 0 {
+                traverseChildNode(childrens: node.params, parent: node)
+            }
+        }
+        
+        var rootNode = JNode()
+        rootNode.type = .Root
+        traverseChildNode(childrens: ast, parent: rootNode)
+    }
+    
+    let numberLiteralClosure: VisitorClosure = { (node, parent) in
+        var currentParent = parent
+        if currentParent.type == .ExpressionStatement {
+            currentParent.expressionts[0].params.append(node)
+        }
+        if currentParent.type == .CallExpression {
+            currentParent.params.append(node)
+        }
+        return currentParent
+    }
+    
+    let callExpressionClosure: VisitorClosure = { (node, parent) in
+        var currentParent = parent
+        
+        var exp = JNode()
+        exp.type = .CallExpression
+        
+        var callee = JnodeCallee()
+        callee.type = .Identifier
+        callee.name = node.name
+        exp.callee = callee
+        
+        if parent.type != .CallExpression {
+            var exps = JNode()
+            exp.type = .ExpressionStatement
+            exp.expressionts.append(exp)
+            currentParent = exps
+        } else {
+            currentParent.expressionts[0].params.append(exp)
+            currentParent = exp
+        }
+        return currentParent
+    }
+}
+
 
 extension String {
     // 判断是否是整数
