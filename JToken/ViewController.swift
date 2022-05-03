@@ -9,6 +9,11 @@ import UIKit
 
 class ViewController: UIViewController {
     
+    @IBAction func generator(_ sender: UIButton) {
+        // 代码生成
+        let _ =  Generator("(multiply (add 1.4 3))")
+    }
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         // Do any additional setup after loading the view.
@@ -17,11 +22,12 @@ class ViewController: UIViewController {
         let a = JTokenizer("(multiply (add 1.4 3))").tokenizer()
         // 语法分析
         let b = JParser("(multiply (add 1.4 3))").parser()
-        // 代码生成
-        Generator("(multiply (add 1.4 3))")
         
-//        print(a)
-//        print(astPrintable(b))
+        print(a)
+        print(astPrintable(b))
+        
+        // 代码生成
+        let _ =  Generator("(multiply (add 1.4 3))")
     }
     
     // 打印语法树 （遍历语法树打印每一个节点）
@@ -160,6 +166,7 @@ public protocol JNodeBase {
     var type: JNodeType {get}
     var name: String {get}
     var params: [JNode] {get}
+    var arguments: [JNode] {get}
     var expressionts: [JNode] {get}
 }
 
@@ -173,6 +180,7 @@ public struct JNode: JNodeBase, JNodeNumberLiteral {
     public var type = JNodeType.None
     public var name = ""
     public var params = [JNode]()
+    public var arguments = [JNode]()
     public var expressionts = [JNode]()
     public var numberType = JNumberType.int
     public var intValue: Int = 0
@@ -181,6 +189,7 @@ public struct JNode: JNodeBase, JNodeNumberLiteral {
 }
 
 public struct JnodeCallee: JNodeBase, JNodeNumberLiteral {
+    public var arguments = [JNode]()
     public var type = JNodeType.None
     public var name = ""
     public var params = [JNode]()
@@ -270,16 +279,17 @@ public class JTransformer {
         
         let numberLiteralClosure: VisitorClosure = { (node, parent) in
              if currentParent.type == .ExpressionStatement {
-                 currentParent.expressionts[0].params.append(node)
+                 currentParent.expressionts[0].arguments.append(node)
              }
              if currentParent.type == .CallExpression {
-                 currentParent.params.append(node)
+                 currentParent.arguments.append(node)
              }
          }
          
         let callExpressionClosure: VisitorClosure = { (node, parent) in
              var exp = JNode()
              exp.type = .CallExpression
+//             exp.params = node.params
              
              var callee = JnodeCallee()
              callee.type = .Identifier
@@ -290,9 +300,14 @@ public class JTransformer {
                  var exps = JNode()
                  exps.type = .ExpressionStatement
                  exps.expressionts.append(exp)
+                 if parent.type == .Root {
+                     self.ast.append(exps)
+                 }
+                 
+                 // TODO: 丢失ast指针？？
                  currentParent = exps
              } else {
-                 currentParent.expressionts[0].params.append(exp)
+                 currentParent.expressionts[0].arguments.append(exp)
                  currentParent = exp
              }
          }
@@ -315,10 +330,14 @@ public class JTransformer {
         }
         
         traverser(visitor: visitor, ast: ast)
-    }
-    
-    public func traverser(visitor: [String: VisitorClosure], ast:[JNode]) {
-       
+                
+        func traverser(visitor: [String: VisitorClosure], ast:[JNode]) {
+           
+            var rootNode = JNode()
+            rootNode.type = .Root
+            traverseChildNode(childrens: ast, parent: rootNode)
+        }
+        
         func traverseChildNode(childrens:[JNode], parent: JNode) {
             for child in childrens {
                 traverseNode(node: child, parent: parent)
@@ -337,16 +356,13 @@ public class JTransformer {
                 traverseChildNode(childrens: node.params, parent: node)
             }
         }
-        
-        var rootNode = JNode()
-        rootNode.type = .Root
-        traverseChildNode(childrens: ast, parent: rootNode)
     }
 }
 
 public class Generator {
     public init(_ input: String) {
-        let ast = JTransformer(input).ast
+        var ast = JTransformer(input).ast
+        ast.remove(at: 0)
         var code = ""
         for aNode in ast {
             code.append(reGeneratorCode(aNode))
@@ -365,10 +381,10 @@ public class Generator {
         if node.type == .CallExpression {
             code.append(node.callee.name)
             code.append("(")
-            if node.params.count > 0 {
-                for (index, arg) in node.params.enumerated() {
+            if node.arguments.count > 0 {
+                for (index, arg) in node.arguments.enumerated() {
                     code.append(reGeneratorCode(arg))
-                    if index != node.params.count - 1 {
+                    if index != node.arguments .count - 1 {
                         code.append(", ")
                     }
                 }
