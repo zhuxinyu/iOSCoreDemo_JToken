@@ -17,9 +17,11 @@ class ViewController: UIViewController {
         let a = JTokenizer("(multiply (add 1.4 3))").tokenizer()
         // 语法分析
         let b = JParser("(multiply (add 1.4 3))").parser()
+        // 代码生成
+        Generator("(multiply (add 1.4 3))")
         
-        print(a)
-        print(astPrintable(b))
+//        print(a)
+//        print(astPrintable(b))
     }
     
     // 打印语法树 （遍历语法树打印每一个节点）
@@ -254,11 +256,69 @@ public class JParser {
 // 遍历器-转换器 -> 语法树转节点树
 public class JTransformer {
     
-    public typealias VisitorClosure = (JNode, JNode) -> JNode
-     
-    var ast = [JNode]()
+    public typealias VisitorClosure = (JNode, JNode) -> ()
+    public var ast = [JNode]()
+    
+    public init(_ input: String) {
+        ast = JParser(input).parser()
+        restructureVisitor(ast: ast)
+    }
+    
+    public func restructureVisitor(ast:[JNode]) {
+        var currentParent = JNode()
+        var visitor = [String: VisitorClosure]()
+        
+        let numberLiteralClosure: VisitorClosure = { (node, parent) in
+             if currentParent.type == .ExpressionStatement {
+                 currentParent.expressionts[0].params.append(node)
+             }
+             if currentParent.type == .CallExpression {
+                 currentParent.params.append(node)
+             }
+         }
+         
+        let callExpressionClosure: VisitorClosure = { (node, parent) in
+             var exp = JNode()
+             exp.type = .CallExpression
+             
+             var callee = JnodeCallee()
+             callee.type = .Identifier
+             callee.name = node.name
+             exp.callee = callee
+             
+             if parent.type != .CallExpression {
+                 var exps = JNode()
+                 exps.type = .ExpressionStatement
+                 exps.expressionts.append(exp)
+                 currentParent = exps
+             } else {
+                 currentParent.expressionts[0].params.append(exp)
+                 currentParent = exp
+             }
+         }
+        
+        for node in ast {
+            switch node.type {
+            case .Identifier:
+                break
+            case .None:
+                break
+            case .NumberLiteral:
+                visitor[node.type.rawValue] = numberLiteralClosure
+            case .CallExpression:
+                visitor[node.type.rawValue] = callExpressionClosure
+            case .Root:
+                break
+            case .ExpressionStatement:
+                break
+            }
+        }
+        
+        traverser(visitor: visitor, ast: ast)
+    }
     
     public func traverser(visitor: [String: VisitorClosure], ast:[JNode]) {
+       
         func traverseChildNode(childrens:[JNode], parent: JNode) {
             for child in childrens {
                 traverseNode(node: child, parent: parent)
@@ -269,7 +329,7 @@ public class JTransformer {
             // 执行外部传入的closure
             if visitor.keys.contains(node.type.rawValue) {
                 if let closure:VisitorClosure = visitor[node.type.rawValue] {
-                    self.ast.append(closure(node, parent))
+                    closure(node, parent)
                 }
             }
             // 看是否有子节点需要继续遍历
@@ -282,39 +342,51 @@ public class JTransformer {
         rootNode.type = .Root
         traverseChildNode(childrens: ast, parent: rootNode)
     }
-    
-    let numberLiteralClosure: VisitorClosure = { (node, parent) in
-        var currentParent = parent
-        if currentParent.type == .ExpressionStatement {
-            currentParent.expressionts[0].params.append(node)
+}
+
+public class Generator {
+    public init(_ input: String) {
+        let ast = JTransformer(input).ast
+        var code = ""
+        for aNode in ast {
+            code.append(reGeneratorCode(aNode))
         }
-        if currentParent.type == .CallExpression {
-            currentParent.params.append(node)
-        }
-        return currentParent
+        print("The code generated:")
+        print(code)
     }
     
-    let callExpressionClosure: VisitorClosure = { (node, parent) in
-        var currentParent = parent
-        
-        var exp = JNode()
-        exp.type = .CallExpression
-        
-        var callee = JnodeCallee()
-        callee.type = .Identifier
-        callee.name = node.name
-        exp.callee = callee
-        
-        if parent.type != .CallExpression {
-            var exps = JNode()
-            exp.type = .ExpressionStatement
-            exp.expressionts.append(exp)
-            currentParent = exps
-        } else {
-            currentParent.expressionts[0].params.append(exp)
-            currentParent = exp
+    public func reGeneratorCode(_ node: JNode) -> String {
+        var code = ""
+        if node.type == .ExpressionStatement {
+            for aExp in node.expressionts {
+                code.append(reGeneratorCode(aExp))
+            }
         }
-        return currentParent
+        if node.type == .CallExpression {
+            code.append(node.callee.name)
+            code.append("(")
+            if node.params.count > 0 {
+                for (index, arg) in node.params.enumerated() {
+                    code.append(reGeneratorCode(arg))
+                    if index != node.params.count - 1 {
+                        code.append(", ")
+                    }
+                }
+            }
+            code.append(")")
+        }
+        if node.type == .Identifier {
+            code.append(node.name)
+        }
+        if node.type == .NumberLiteral {
+            switch node.numberType {
+            case .float:
+                code.append(String(node.floatValue))
+            case .int:
+                code.append(String(node.intValue))
+            }
+        }
+        return code
     }
 }
 
